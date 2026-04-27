@@ -255,7 +255,7 @@ export default function MapTracker({
             ) : null}
           </div>
         )}
-        <div className="flex min-h-[min(45vh,420px)] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/80 bg-gradient-to-b from-muted/20 to-muted/5 px-6 text-center">
+        <div className="flex min-h-[min(45vh,420px)] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/80 bg-linear-to-b from-muted/20 to-muted/5 px-6 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-full border border-border bg-card shadow-inner">
             <span className="text-lg text-muted-foreground" aria-hidden>
               ◎
@@ -299,7 +299,7 @@ export default function MapTracker({
       </div>
 
       <div className="relative overflow-hidden rounded-2xl border border-border/80 bg-card shadow-lg ring-1 ring-primary/10">
-        <div className="pointer-events-none absolute inset-0 z-[400] bg-gradient-to-t from-background/20 via-transparent to-transparent" />
+        <div className="pointer-events-none absolute inset-0 z-400 bg-linear-to-t from-background/20 via-transparent to-transparent" />
         <div className="relative z-0 h-[min(58vh,560px)] w-full min-h-[320px]">
           <MapContainer
             center={center}

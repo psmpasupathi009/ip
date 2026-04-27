@@ -79,7 +79,7 @@ export default function ShareCreateClient() {
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:py-12">
       <Card className="overflow-hidden border-border/80 shadow-lg shadow-black/20">
-        <CardHeader className="space-y-3 border-b border-border/60 bg-gradient-to-br from-card via-card to-primary/[0.07] pb-6">
+        <CardHeader className="space-y-3 border-b border-border/60 bg-linear-to-br from-card via-card to-primary/[0.07] pb-6">
           <div className="flex items-center gap-2 text-primary">
             <Sparkles className="h-5 w-5" aria-hidden />
             <span className="text-xs font-semibold uppercase tracking-wider">New session</span>

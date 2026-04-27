@@ -368,7 +368,7 @@ export default function ShareSessionClient({ sessionId }: Props) {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-8 sm:py-10">
       <Card className="overflow-hidden border-border/80 shadow-lg shadow-black/20">
-        <CardHeader className="space-y-4 border-b border-border/60 bg-gradient-to-br from-card via-card to-primary/[0.06] pb-6">
+        <CardHeader className="space-y-4 border-b border-border/60 bg-linear-to-br from-card via-card to-primary/6 pb-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-primary">
