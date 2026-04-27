@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import connectDB from "@/lib/mongodb";
-import Location from "@/lib/models/Location";
+import prisma from "@/lib/prisma";
 
 function clientIp(request: NextRequest): string {
   const forwarded = request.headers.get("x-forwarded-for");
@@ -53,15 +52,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await connectDB();
-
     const timestamp =
       body.timestamp != null ? new Date(String(body.timestamp)) : new Date();
     if (Number.isNaN(timestamp.getTime())) {
       return NextResponse.json({ error: "Invalid timestamp." }, { status: 400 });
     }
 
-    const doc = await Location.create({
+    const doc = await prisma.location.create({
+      data: {
       imei,
       sim,
       mobile,
@@ -72,15 +70,14 @@ export async function POST(request: NextRequest) {
       accuracy: Number.isFinite(accuracy) ? accuracy : undefined,
       timestamp,
       userAgent,
+      },
     });
 
-    return NextResponse.json(
-      { ...doc.toObject(), _id: String(doc._id) },
-      { status: 201 },
-    );
+    return NextResponse.json({ ...doc, _id: doc.id }, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
-    const isConfig = message.includes("MONGODB_URI");
+    const isConfig =
+      message.includes("DATABASE_URL") || message.includes("MONGODB_URI");
     return NextResponse.json(
       { error: isConfig ? message : "Failed to save location." },
       { status: isConfig ? 503 : 500 },

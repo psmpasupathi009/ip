@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model Location {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  imei      String
+  sim       String?
+  mobile    String
+  lat       Float
+  lng       Float
+  city      String?
+  ip        String?
+  accuracy  Float?
+  timestamp DateTime @default(now())
+  userAgent String?
+}
+
+enum ShareSessionStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  STOPPED
+  EXPIRED
+}
+
+enum ConsentAction {
+  CREATED
+  ACCEPTED
+  DECLINED
+  STOPPED
+  REVOKED
+  EXPIRED
+}
+
+model ShareSession {
+  id             String             @id @default(auto()) @map("_id") @db.ObjectId
+  ownerLabel     String
+  recipientLabel String?
+  ownerToken     String             @unique
+  recipientToken String             @unique
+  status         ShareSessionStatus @default(PENDING)
+  createdAt      DateTime           @default(now())
+  acceptedAt     DateTime?
+  stoppedAt      DateTime?
+  expiresAt      DateTime
+  pings          LocationPing[]
+  consentEvents  ConsentEvent[]
+
+  @@index([status, expiresAt])
+}
+
+model LocationPing {
+  id         String       @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId  String       @db.ObjectId
+  session    ShareSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  source     String?
+  lat        Float
+  lng        Float
+  city       String?
+  accuracy   Float?
+  ip         String?
+  userAgent  String?
+  capturedAt DateTime     @default(now())
+
+  @@index([sessionId, capturedAt])
+}
+
+model ConsentEvent {
+  id        String        @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId String        @db.ObjectId
+  session   ShareSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  action    ConsentAction
+  actor     String
+  note      String?
+  createdAt DateTime      @default(now())
+
+  @@index([sessionId, createdAt])
+}
+

@@ -19,6 +19,7 @@ export type MapLocation = {
   accuracy?: number;
   timestamp: string;
   userAgent: string;
+  source?: string;
 };
 
 function fixDefaultIcons() {
@@ -95,6 +96,7 @@ export default function MapTracker({ locations }: { locations: MapLocation[] }) 
                   <p>Mobile: {loc.mobile || loc.sim}</p>
                 ) : null}
                 <p>{loc.city || "—"}</p>
+                {loc.source ? <p>Source: {loc.source.toUpperCase()}</p> : null}
                 <p className="text-muted-foreground">
                   {new Date(loc.timestamp).toLocaleString()}
                 </p>

@@ -1,26 +1,33 @@
 import { NextResponse } from "next/server";
-import connectDB from "@/lib/mongodb";
-import Location from "@/lib/models/Location";
+import prisma from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await connectDB();
-    const rows = await Location.find()
-      .sort({ timestamp: -1 })
-      .lean()
-      .exec();
+    const rows = await prisma.location.findMany({
+      orderBy: { timestamp: "desc" },
+    });
 
     const locations = rows.map((r) => ({
-      ...r,
-      _id: String(r._id),
+      _id: r.id,
+      imei: r.imei,
+      sim: r.sim ?? "",
+      mobile: r.mobile ?? "",
+      lat: r.lat,
+      lng: r.lng,
+      city: r.city ?? "",
+      ip: r.ip ?? "",
+      accuracy: r.accuracy ?? undefined,
+      timestamp: r.timestamp.toISOString(),
+      userAgent: r.userAgent ?? "",
     }));
 
     return NextResponse.json({ locations });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
-    const isConfig = message.includes("MONGODB_URI");
+    const isConfig =
+      message.includes("DATABASE_URL") || message.includes("MONGODB_URI");
     return NextResponse.json(
       { error: isConfig ? message : "Failed to load locations." },
       { status: isConfig ? 503 : 500 },
