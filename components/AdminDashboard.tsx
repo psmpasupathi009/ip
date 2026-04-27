@@ -57,6 +57,8 @@ type ShareSessionsResponse = {
   error?: string;
 };
 
+type DeleteSessionResponse = { ok?: boolean; error?: string };
+
 export default function AdminDashboard({
   initialLocations,
   initialLoadError = null,
@@ -80,8 +82,10 @@ export default function AdminDashboard({
   const [copiedLinkKey, setCopiedLinkKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deletingSession, setDeletingSession] = useState(false);
   const [error, setError] = useState<string | null>(initialLoadError ?? null);
   const [pendingDelete, setPendingDelete] = useState<MapLocation | null>(null);
+  const [pendingSessionDelete, setPendingSessionDelete] = useState<AdminShareSessionRow | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const mapSectionRef = useRef<HTMLDivElement | null>(null);
 
@@ -182,6 +186,30 @@ export default function AdminDashboard({
       setDeleting(false);
     }
   }, [pendingDelete]);
+
+  const confirmDeleteSession = useCallback(async () => {
+    if (!pendingSessionDelete) return;
+    setDeletingSession(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/share-sessions/${pendingSessionDelete.id}`, {
+        method: "DELETE",
+      });
+      const data = (await res.json().catch(() => ({}))) as DeleteSessionResponse;
+      if (!res.ok) {
+        throw new Error(data.error || "Delete share link failed.");
+      }
+      setShareSessions((prev) => prev.filter((s) => s.id !== pendingSessionDelete.id));
+      if (activeSessionId === pendingSessionDelete.id) {
+        setActiveSessionId(null);
+      }
+      setPendingSessionDelete(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete share link failed.");
+    } finally {
+      setDeletingSession(false);
+    }
+  }, [activeSessionId, pendingSessionDelete]);
 
   return (
     <div className="mx-auto flex min-h-full max-w-7xl flex-col gap-6 px-4 py-8">
@@ -293,7 +321,7 @@ export default function AdminDashboard({
                     <TableHead className="sticky top-0 z-10 bg-card min-w-[200px]">Recipient link</TableHead>
                     <TableHead className="sticky top-0 z-10 bg-card min-w-[200px]">Owner link</TableHead>
                     <TableHead className="sticky top-0 z-10 bg-card">Session id</TableHead>
-                    <TableHead className="sticky top-0 z-10 bg-card text-right">Map</TableHead>
+                    <TableHead className="sticky top-0 z-10 bg-card text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -351,15 +379,27 @@ export default function AdminDashboard({
                         <TableCell className="max-w-[100px] truncate font-mono text-[10px]" title={s.id}>
                           {s.id.slice(-10)}
                         </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => focusSessionOnMap(s.id)}
-                          >
-                            View on map
-                          </Button>
+                        <TableCell>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => focusSessionOnMap(s.id)}
+                            >
+                              View on map
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className={cn("text-destructive hover:text-destructive")}
+                              onClick={() => setPendingSessionDelete(s)}
+                              aria-label={`Delete share session ${s.id}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -501,6 +541,50 @@ export default function AdminDashboard({
             <Button type="button" variant="destructive" onClick={confirmDelete} disabled={deleting}>
               {deleting ? <Loader2 className="animate-spin" aria-hidden /> : null}
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={pendingSessionDelete != null}
+        onOpenChange={(open) => !open && setPendingSessionDelete(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this consent link?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the selected <code className="rounded bg-muted px-1 text-xs">ShareSession</code>
+              and all of its consent GPS pings.
+            </DialogDescription>
+          </DialogHeader>
+          {pendingSessionDelete ? (
+            <ul className="list-inside list-disc px-6 font-mono text-xs text-foreground/90 sm:px-0">
+              <li>Session: {pendingSessionDelete.id}</li>
+              <li>Owner: {pendingSessionDelete.ownerLabel}</li>
+              <li>
+                Recipient: {pendingSessionDelete.recipientLabel?.trim() || "—"}
+              </li>
+              <li>Status: {pendingSessionDelete.status}</li>
+            </ul>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingSessionDelete(null)}
+              disabled={deletingSession}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={confirmDeleteSession}
+              disabled={deletingSession}
+            >
+              {deletingSession ? <Loader2 className="animate-spin" aria-hidden /> : null}
+              Delete link
             </Button>
           </DialogFooter>
         </DialogContent>

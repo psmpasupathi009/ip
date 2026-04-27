@@ -1,10 +1,33 @@
 import type { NextRequest } from "next/server";
 import { headers } from "next/headers";
 
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const withProtocol = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  return withProtocol.replace(/\/+$/, "");
+}
+
+function configuredBaseUrl(): string | null {
+  const candidates = [
+    process.env.BASE_URL,
+    process.env.NEXT_PUBLIC_BASE_URL,
+    process.env.NEXT_PUBLIC_API_BASE_URL,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const normalized = normalizeBaseUrl(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 /** Public site base URL for share links (matches create-session API logic). */
 export function resolveShareBaseUrlFromRequest(request: NextRequest): string {
-  const configured = process.env.NEXT_PUBLIC_BASE_URL?.trim();
-  if (configured) return configured.replace(/\/+$/, "");
+  const configured = configuredBaseUrl();
+  if (configured) return configured;
 
   const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
   if (!host) {
@@ -17,8 +40,8 @@ export function resolveShareBaseUrlFromRequest(request: NextRequest): string {
 
 /** Server Components / RSC: derive the same base URL from incoming request headers. */
 export async function resolveShareBaseUrlFromAppHeaders(): Promise<string> {
-  const configured = process.env.NEXT_PUBLIC_BASE_URL?.trim();
-  if (configured) return configured.replace(/\/+$/, "");
+  const configured = configuredBaseUrl();
+  if (configured) return configured;
 
   const h = await headers();
   const host = h.get("x-forwarded-host") || h.get("host");
