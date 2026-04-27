@@ -21,10 +21,6 @@ export async function GET(request: NextRequest, { params }: Params) {
           orderBy: { capturedAt: "desc" },
           take: 100,
         },
-        consentEvents: {
-          orderBy: { createdAt: "desc" },
-          take: 30,
-        },
       },
     });
     if (!session) {
@@ -45,9 +41,6 @@ export async function GET(request: NextRequest, { params }: Params) {
           status: "EXPIRED",
         },
       });
-      await prisma.consentEvent.create({
-        data: { sessionId: id, action: "EXPIRED", actor: "system" },
-      });
       status = "EXPIRED";
     } else if (isExpired(session.expiresAt)) {
       status = "EXPIRED";
@@ -67,7 +60,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       },
       pings: session.pings.map((p) => ({
         id: p.id,
-        source: p.source ?? "gps",
+        source: "gps",
         lat: p.lat,
         lng: p.lng,
         city: p.city ?? "",
@@ -75,13 +68,6 @@ export async function GET(request: NextRequest, { params }: Params) {
         accuracy: p.accuracy ?? undefined,
         capturedAt: p.capturedAt.toISOString(),
         userAgent: p.userAgent ?? "",
-      })),
-      consentEvents: session.consentEvents.map((e) => ({
-        id: e.id,
-        action: e.action,
-        actor: e.actor,
-        note: e.note ?? "",
-        createdAt: e.createdAt.toISOString(),
       })),
     });
   } catch (e) {

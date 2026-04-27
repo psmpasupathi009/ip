@@ -36,3 +36,65 @@ body {
   background: var(--color-background);
   color: var(--color-foreground);
 }
+
+/* Leaflet — match app dark theme + live marker pulse */
+.leaflet-container {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #18181b !important;
+  color: #fafafa;
+  border-radius: 0.75rem;
+  border: 1px solid #27272a;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+}
+
+.leaflet-popup-content {
+  margin: 10px 12px;
+  line-height: 1.45;
+}
+
+.leaflet-control-layers {
+  background: rgba(24, 24, 27, 0.96) !important;
+  color: #fafafa !important;
+  border: 1px solid #27272a !important;
+  border-radius: 0.5rem;
+}
+
+.leaflet-control-layers-list {
+  padding: 6px 8px;
+}
+
+.leaflet-control-layers label {
+  color: #e4e4e7;
+  font-size: 12px;
+}
+
+@keyframes map-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 16px rgba(99, 102, 241, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+  }
+}
+
+.map-pulse-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.map-pulse-dot {
+  width: 16px;
+  height: 16px;
+  margin: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(145deg, #a5b4fc, #4f46e5);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  animation: map-pulse-ring 2.4s ease-out infinite;
+}

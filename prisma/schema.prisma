@@ -29,15 +29,6 @@ enum ShareSessionStatus {
   EXPIRED
 }
 
-enum ConsentAction {
-  CREATED
-  ACCEPTED
-  DECLINED
-  STOPPED
-  REVOKED
-  EXPIRED
-}
-
 model ShareSession {
   id             String             @id @default(auto()) @map("_id") @db.ObjectId
   ownerLabel     String
@@ -50,7 +41,6 @@ model ShareSession {
   stoppedAt      DateTime?
   expiresAt      DateTime
   pings          LocationPing[]
-  consentEvents  ConsentEvent[]
 
   @@index([status, expiresAt])
 }
@@ -59,7 +49,6 @@ model LocationPing {
   id         String       @id @default(auto()) @map("_id") @db.ObjectId
   sessionId  String       @db.ObjectId
   session    ShareSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  source     String?
   lat        Float
   lng        Float
   city       String?
@@ -70,16 +59,3 @@ model LocationPing {
 
   @@index([sessionId, capturedAt])
 }
-
-model ConsentEvent {
-  id        String        @id @default(auto()) @map("_id") @db.ObjectId
-  sessionId String        @db.ObjectId
-  session   ShareSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  action    ConsentAction
-  actor     String
-  note      String?
-  createdAt DateTime      @default(now())
-
-  @@index([sessionId, createdAt])
-}
-

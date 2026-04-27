@@ -1,29 +1,20 @@
 import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { fetchAdminMergedLocations } from "@/lib/admin-merged-locations";
 
 export const dynamic = "force-dynamic";
 
+const PAGE_SIZE = 500;
+
 export async function GET() {
   try {
-    const rows = await prisma.location.findMany({
-      orderBy: { timestamp: "desc" },
+    const { locations, counts } = await fetchAdminMergedLocations(PAGE_SIZE);
+
+    return NextResponse.json({
+      locations,
+      limit: PAGE_SIZE,
+      returned: locations.length,
+      counts,
     });
-
-    const locations = rows.map((r) => ({
-      _id: r.id,
-      imei: r.imei,
-      sim: r.sim ?? "",
-      mobile: r.mobile ?? "",
-      lat: r.lat,
-      lng: r.lng,
-      city: r.city ?? "",
-      ip: r.ip ?? "",
-      accuracy: r.accuracy ?? undefined,
-      timestamp: r.timestamp.toISOString(),
-      userAgent: r.userAgent ?? "",
-    }));
-
-    return NextResponse.json({ locations });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
     const isConfig =

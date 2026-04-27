@@ -9,7 +9,7 @@ import {
 
 type Params = { params: Promise<{ id: string }> };
 
-const RATE_WINDOW_MS = 10_000;
+const RATE_WINDOW_MS = 5_000;
 const rateBucket = new Map<string, number>();
 
 export async function POST(request: NextRequest, { params }: Params) {
@@ -19,8 +19,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const token = assertToken(body.token);
     const lat = Number(body.lat);
     const lng = Number(body.lng);
-    const source =
-      body.source === "gps" || body.source === "ip" ? body.source : "gps";
+    const source = body.source === "gps" || body.source === "ip" ? body.source : "gps";
     const accuracy =
       body.accuracy == null ? undefined : Number(body.accuracy);
     const city = typeof body.city === "string" ? body.city : "";
@@ -54,7 +53,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const prevAt = rateBucket.get(bucketKey);
     if (prevAt && now - prevAt < RATE_WINDOW_MS) {
       return NextResponse.json(
-        { error: "Too many updates. Send at most one ping per 10 seconds." },
+        { error: "Too many updates. Send at most one ping per 5 seconds." },
         { status: 429 },
       );
     }
@@ -76,11 +75,6 @@ export async function POST(request: NextRequest, { params }: Params) {
           status: session.status === "STOPPED" ? "STOPPED" : "EXPIRED",
         },
       });
-      if (session.status !== "STOPPED") {
-        await prisma.consentEvent.create({
-          data: { sessionId: id, action: "EXPIRED", actor: "system" },
-        });
-      }
       return NextResponse.json({ error: "Session expired." }, { status: 410 });
     }
 
@@ -95,7 +89,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     const ping = await prisma.locationPing.create({
       data: {
         sessionId: session.id,
-        source,
         lat,
         lng,
         city,

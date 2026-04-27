@@ -10,12 +10,6 @@ export function normalizeLabel(value: unknown): string {
   return value.trim().slice(0, 80);
 }
 
-export function normalizeNote(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed.slice(0, 500) : null;
-}
-
 export function isExpired(expiresAt: Date): boolean {
   return expiresAt.getTime() <= Date.now();
 }

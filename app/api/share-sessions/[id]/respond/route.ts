@@ -10,7 +10,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     const body = (await request.json()) as Record<string, unknown>;
     const token = assertToken(body.token);
     const action = body.action === "accept" ? "accept" : body.action === "decline" ? "decline" : null;
-    const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : null;
 
     if (!token || !action) {
       return NextResponse.json(
@@ -31,9 +30,6 @@ export async function POST(request: NextRequest, { params }: Params) {
         where: { id },
         data: { status: "EXPIRED" },
       });
-      await prisma.consentEvent.create({
-        data: { sessionId: id, action: "EXPIRED", actor: "system" },
-      });
       return NextResponse.json({ error: "Session expired." }, { status: 410 });
     }
 
@@ -51,14 +47,6 @@ export async function POST(request: NextRequest, { params }: Params) {
       data: {
         status: nextStatus,
         acceptedAt: action === "accept" ? new Date() : null,
-      },
-    });
-    await prisma.consentEvent.create({
-      data: {
-        sessionId: id,
-        action: action === "accept" ? "ACCEPTED" : "DECLINED",
-        actor: "recipient",
-        note,
       },
     });
 
