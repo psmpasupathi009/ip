@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import OnThisDayHistory from "@/components/OnThisDayHistory";
 import { getDayHighlights } from "@/lib/day-highlights";
+import { msSinceLatestPing } from "@/lib/gps-live-status";
 import { formatLocalYmd, pickQuoteForSessionAndDay } from "@/lib/recipient-quotes";
 
 const CONSENT_AUTOSTART_KEY = (sessionId: string) => `consent-live-autostart:${sessionId}`;
@@ -424,6 +425,23 @@ export default function ShareSessionClient({ sessionId }: Props) {
 
     return () => window.clearInterval(id);
   }, [sessionLoaded, token, status, sharing, sessionId, pings.length]);
+
+  /** If sharing is on but fresh pings stop, restart GPS listeners automatically. */
+  useEffect(() => {
+    if (!sessionLoaded || !token) return;
+    if (!sharing) return;
+    if (status !== "ACCEPTED" && status !== "STOPPED") return;
+
+    const id = window.setInterval(() => {
+      const age = msSinceLatestPing(pings);
+      if (age != null && age < 75_000) return;
+      clearSampling();
+      setSharing(false);
+      void startSharingRef.current();
+    }, 20_000);
+
+    return () => window.clearInterval(id);
+  }, [sessionLoaded, token, sharing, status, pings, clearSampling]);
 
   async function acceptSessionThenShare() {
     const res = await fetch(`/api/share-sessions/${sessionId}/respond`, {

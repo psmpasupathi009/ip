@@ -61,8 +61,12 @@ export type MapTrackerProps = {
 const CARTO_DARK =
   "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
 const OSM = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const CARTO_VOYAGER =
+  "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
 const ESRI_SATELLITE =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const ESRI_PLACE_LABELS =
+  "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
 
 function fixDefaultIcons() {
   if (leafletIconsPatched) return;
@@ -344,7 +348,22 @@ export default function MapTracker({
             scrollWheelZoom
           >
             <LayersControl position="topright">
-              <LayersControl.BaseLayer checked name="Carto Dark">
+              <LayersControl.BaseLayer checked name="OpenStreetMap (Labels)">
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url={OSM}
+                  maxZoom={19}
+                />
+              </LayersControl.BaseLayer>
+              <LayersControl.BaseLayer name="Carto Voyager">
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                  url={CARTO_VOYAGER}
+                  subdomains="abcd"
+                  maxZoom={20}
+                />
+              </LayersControl.BaseLayer>
+              <LayersControl.BaseLayer name="Carto Dark">
                 <TileLayer
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
                   url={CARTO_DARK}
@@ -352,20 +371,21 @@ export default function MapTracker({
                   maxZoom={20}
                 />
               </LayersControl.BaseLayer>
-              <LayersControl.BaseLayer name="OpenStreetMap">
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  url={OSM}
-                  maxZoom={19}
-                />
-              </LayersControl.BaseLayer>
-              <LayersControl.BaseLayer name="Satellite (Esri)">
+              <LayersControl.BaseLayer name="Satellite (Esri Imagery)">
                 <TileLayer
                   attribution='Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
                   url={ESRI_SATELLITE}
                   maxZoom={19}
                 />
               </LayersControl.BaseLayer>
+              <LayersControl.Overlay checked name="Place labels">
+                <TileLayer
+                  attribution='Labels &copy; Esri'
+                  url={ESRI_PLACE_LABELS}
+                  opacity={0.9}
+                  maxZoom={19}
+                />
+              </LayersControl.Overlay>
             </LayersControl>
 
             <ScaleControl position="bottomleft" imperial={false} />
