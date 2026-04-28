@@ -32,7 +32,7 @@ type WikiFeed = {
 
 const WM_USER_AGENT =
   process.env.WIKIPEDIA_API_USER_AGENT ??
-  "ip/0.1 (https://github.com; Wikimedia On This Day consumer — set WIKIPEDIA_API_USER_AGENT)";
+  "ip/0.1 (https://ip-alpha-amber.vercel.app/; Wikimedia On This Day)";
 
 function articleUrlFromPage(p: WikiPage): string | null {
   const desktop = p.content_urls?.desktop?.page;

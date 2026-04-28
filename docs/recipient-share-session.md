@@ -21,7 +21,7 @@ The session row in the database tracks status (`PENDING` → `ACCEPTED` → `STO
 | **`components/ShareSessionClient.tsx`** | Layout, quote + **Open**, calendar “on this day” panel after accept; **no map** on the recipient device; browser geolocation + ping loop still runs in the background for the organizer’s dashboard. |
 | **`lib/recipient-quotes.ts`** | Chooses the displayed quote from a static list using **session id + local calendar day** (pure display logic). |
 | **`lib/day-highlights.ts`** | Local calendar facts (day-of-year, ISO week, seasonal hint, rotating notes + fixed observances by month-day). |
-| **`lib/wikipedia-on-this-day.ts`** + **`app/api/on-this-day/route.ts`** | Fetches [Wikimedia “On this day”](https://api.wikimedia.org/wiki/Feed_API/Reference/On_this_day) for the month/day; cached ~24h. Optional env **`WIKIPEDIA_API_USER_AGENT`** (include contact URL per Wikimedia policy). |
+| **`lib/wikipedia-on-this-day.ts`** + **`app/api/on-this-day/route.ts`** | Fetches [Wikimedia “On this day”](https://api.wikimedia.org/wiki/Feed_API/Reference/On_this_day) for the month/day; cached ~24h. Optional env **`WIKIPEDIA_API_USER_AGENT`**; default identifies the app with [production URL](https://ip-alpha-amber.vercel.app/). |
 | **`components/OnThisDayHistory.tsx`** | Cards with image, blurb, and link to the English Wikipedia article (new tab). |
 | **`app/share/session/[id]/page.tsx`** | Page metadata (title/description) for the tab and SEO. |
 | **API routes under `/api/share-sessions/…`** | Unchanged contract: poll, respond, ping, resume, stop work as before. |
