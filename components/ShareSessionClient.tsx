@@ -41,7 +41,9 @@ function clearGeoWatch(watchRef: MutableRefObject<number | null>) {
 
 export default function ShareSessionClient({ sessionId }: Props) {
   const MIN_PING_GAP_MS = 3_000;
-  const FALLBACK_SAMPLE_MS = 8_000;
+  const FALLBACK_SAMPLE_MS = 5_000;
+  /** Ignore coarse network-based fixes; wait for tighter GPS lock for better live movement. */
+  const MAX_ACCEPTED_ACCURACY_M = 120;
   const params = useSearchParams();
   const token = params.get("token") ?? "";
   const [status, setStatus] = useState("PENDING");
@@ -280,12 +282,23 @@ export default function ShareSessionClient({ sessionId }: Props) {
     const pushCurrentPosition = () => {
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
+          const accuracy = pos.coords.accuracy ?? undefined;
+          if (
+            typeof accuracy === "number" &&
+            Number.isFinite(accuracy) &&
+            accuracy > MAX_ACCEPTED_ACCURACY_M
+          ) {
+            setError(
+              `Waiting for better GPS accuracy (currently ±${Math.round(accuracy)}m). Move to open sky or enable Precise Location.`,
+            );
+            return;
+          }
           try {
             setError(null);
             await sendPing({
               lat: pos.coords.latitude,
               lng: pos.coords.longitude,
-              accuracy: pos.coords.accuracy ?? undefined,
+              accuracy,
               city: "GPS fix",
             });
             await refresh();
@@ -294,7 +307,7 @@ export default function ShareSessionClient({ sessionId }: Props) {
           }
         },
         () => {},
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
       );
     };
 
@@ -308,12 +321,23 @@ export default function ShareSessionClient({ sessionId }: Props) {
 
     watchRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
+        const accuracy = pos.coords.accuracy ?? undefined;
+        if (
+          typeof accuracy === "number" &&
+          Number.isFinite(accuracy) &&
+          accuracy > MAX_ACCEPTED_ACCURACY_M
+        ) {
+          setError(
+            `GPS fix is coarse (±${Math.round(accuracy)}m). Waiting for a more precise lock…`,
+          );
+          return;
+        }
         try {
           setError(null);
           await sendPing({
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
-            accuracy: pos.coords.accuracy ?? undefined,
+            accuracy,
             city: "GPS fix",
           });
           await refresh();
@@ -337,7 +361,7 @@ export default function ShareSessionClient({ sessionId }: Props) {
             : "Brief GPS gap — still listening. Last position stays on the map.";
         setError(transient);
       },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15_000 },
     );
   }
 
