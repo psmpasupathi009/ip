@@ -22,15 +22,13 @@ type Props = {
 
 export default function OnThisDayHistory({ dateYmd, active }: Props) {
   const [items, setItems] = useState<Item[]>([]);
-  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [source, setSource] = useState<string | null>(null);
+  const [loadedDateYmd, setLoadedDateYmd] = useState<string>("");
 
   useEffect(() => {
     if (!active || !dateYmd) return;
     let cancelled = false;
-    setLoading(true);
-    setErr(null);
     fetch(`/api/on-this-day?date=${encodeURIComponent(dateYmd)}`, { cache: "no-store" })
       .then(async (r) => {
         const data = (await r.json()) as { events?: Item[]; error?: string; source?: string };
@@ -39,19 +37,23 @@ export default function OnThisDayHistory({ dateYmd, active }: Props) {
       })
       .then((data) => {
         if (cancelled) return;
+        setErr(null);
         setItems(Array.isArray(data.events) ? data.events : []);
         setSource(typeof data.source === "string" ? data.source : null);
+        setLoadedDateYmd(dateYmd);
       })
       .catch((e) => {
-        if (!cancelled) setErr(e instanceof Error ? e.message : "Failed to load.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setErr(e instanceof Error ? e.message : "Failed to load.");
+          setLoadedDateYmd(dateYmd);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [active, dateYmd]);
+
+  const loading = active && dateYmd !== loadedDateYmd && !err;
 
   if (!active) return null;
 
@@ -87,7 +89,7 @@ export default function OnThisDayHistory({ dateYmd, active }: Props) {
         </p>
       ) : null}
 
-      {!loading && !err && items.length === 0 ? (
+      {!loading && !err && loadedDateYmd === dateYmd && items.length === 0 ? (
         <p className="mt-4 text-sm text-muted-foreground">No curated events returned for this date.</p>
       ) : null}
 

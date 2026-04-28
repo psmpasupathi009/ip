@@ -85,7 +85,6 @@ export default function ShareManageClient({ sessionId }: Props) {
   const [recipientLabel, setRecipientLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pings, setPings] = useState<PollPayload["pings"]>([]);
-  const [gpsUiTick, setGpsUiTick] = useState(0);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -113,16 +112,7 @@ export default function ShareManageClient({ sessionId }: Props) {
     };
   }, [refresh, status]);
 
-  useEffect(() => {
-    if (status !== "ACCEPTED") return;
-    const id = window.setInterval(() => setGpsUiTick((n) => n + 1), 2000);
-    return () => window.clearInterval(id);
-  }, [status]);
-
-  const ownerGpsUi = useMemo(
-    () => ownerRecipientGpsBanner(status, pings),
-    [status, pings, gpsUiTick],
-  );
+  const ownerGpsUi = ownerRecipientGpsBanner(status, pings);
   const latestCapturedAt = useMemo(() => latestPingCapturedAt(pings), [pings]);
   const movementLiveLabel = ownerGpsUi === "live" ? "Live" : "Paused";
   const lastUpdateLabel = latestCapturedAt

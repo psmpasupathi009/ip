@@ -138,12 +138,7 @@ export default function ShareSessionClient({ sessionId }: Props) {
       setSessionLoaded(true);
     }
   }, [getRecipientDeviceId, sessionId, token]);
-
-  useEffect(() => {
-    if (!token) {
-      setError("Invalid link: missing session token.");
-    }
-  }, [token]);
+  const missingTokenError = token ? null : "Invalid link: missing session token.";
 
   useEffect(() => {
     const pollMs = sharing ? 2_500 : 5_000;
@@ -365,9 +360,11 @@ export default function ShareSessionClient({ sessionId }: Props) {
     );
   }
 
-  startSharingRef.current = () => {
-    void startSharing();
-  };
+  useEffect(() => {
+    startSharingRef.current = () => {
+      void startSharing();
+    };
+  });
 
   useEffect(() => {
     if (status === "STOPPED") {
@@ -534,9 +531,6 @@ export default function ShareSessionClient({ sessionId }: Props) {
     Boolean(token) &&
     (status === "PENDING" || ((status === "ACCEPTED" || status === "STOPPED") && !sharing));
 
-  /** Before poll resolves, treat invite links as quote-first (avoids flashing extra chrome). */
-  const quoteOnlyLanding = Boolean(token) && (!sessionLoaded || status === "PENDING");
-
   /** After Open / active session: show calendar + “this day” notes (map stays off; GPS still runs in background). */
   const showDayPanel =
     sessionLoaded && Boolean(token) && (status === "ACCEPTED" || status === "STOPPED");
@@ -636,12 +630,12 @@ export default function ShareSessionClient({ sessionId }: Props) {
             <p className="mx-auto mt-8 max-w-md text-sm text-muted-foreground">That&apos;s alright — you chose not to.</p>
           ) : null}
 
-          {error ? (
+          {missingTokenError || error ? (
             <p
               className="mx-auto mt-8 max-w-md rounded-xl border border-destructive/35 bg-destructive/10 px-4 py-3 text-left text-sm text-destructive"
               role="alert"
             >
-              {error}
+              {missingTokenError || error}
             </p>
           ) : null}
         </div>
