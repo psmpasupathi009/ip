@@ -1,16 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Loader2, MapPin, Radio, ShieldCheck } from "lucide-react";
+import { Calendar, Loader2, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { MapLocation } from "@/components/MapTracker";
 import { recipientGpsBanner } from "@/lib/gps-live-status";
-import { isLifetimeExpiryIso } from "@/lib/share-session";
-import { cn } from "@/lib/utils";
+import { formatLocalYmd, pickQuoteForSessionAndDay } from "@/lib/recipient-quotes";
 
 const CONSENT_AUTOSTART_KEY = (sessionId: string) => `consent-live-autostart:${sessionId}`;
 
@@ -53,50 +51,21 @@ function clearGeoWatch(watchRef: MutableRefObject<number | null>) {
   }
 }
 
-function formatTimeLeft(iso: string) {
-  if (isLifetimeExpiryIso(iso)) return "No expiry — until you stop sharing";
-  const ms = new Date(iso).getTime() - Date.now();
-  if (!Number.isFinite(ms)) return "";
-  if (ms <= 0) return "Session ended";
-  const totalMin = Math.floor(ms / 60_000);
-  const d = Math.floor(totalMin / 1440);
-  const h = Math.floor((totalMin % 1440) / 60);
-  const m = totalMin % 60;
-  if (d > 0) return `${d}d ${h}h remaining`;
-  if (h > 0) return `${h}h ${m}m remaining`;
-  return `${m}m remaining`;
-}
-
-function statusBadgeClass(status: string) {
-  switch (status) {
-    case "ACCEPTED":
-      return "border-emerald-500/40 bg-emerald-500/10 text-emerald-200";
-    case "PENDING":
-      return "border-amber-500/40 bg-amber-500/10 text-amber-200";
-    case "DECLINED":
-      return "border-rose-500/40 bg-rose-500/10 text-rose-200";
-    case "STOPPED":
-      return "border-zinc-500/50 bg-zinc-500/10 text-zinc-200";
-    case "EXPIRED":
-      return "border-zinc-600/50 bg-zinc-600/10 text-zinc-300";
-    default:
-      return "border-border bg-muted/40 text-muted-foreground";
-  }
-}
-
 export default function ShareSessionClient({ sessionId }: Props) {
   const MIN_PING_GAP_MS = 3_000;
   const FALLBACK_SAMPLE_MS = 8_000;
   const params = useSearchParams();
   const token = params.get("token") ?? "";
   const [status, setStatus] = useState("PENDING");
-  const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [ownerLabel, setOwnerLabel] = useState("");
   const [recipientLabel, setRecipientLabel] = useState("");
-  const [loading, setLoading] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pings, setPings] = useState<PollPayload["pings"]>([]);
+  /** First poll finished — avoids auto-accept racing default `PENDING` before server responds. */
+  const [sessionLoaded, setSessionLoaded] = useState(false);
+  /** User tapped Open (accept + GPS, or resume) — quote-only screen hides extras until then when status was PENDING. */
+  const [openingInProgress, setOpeningInProgress] = useState(false);
   /** Re-render periodically while sharing so Live vs Waiting updates when GPS drops. */
   const [gpsUiTick, setGpsUiTick] = useState(0);
   const watchRef = useRef<number | null>(null);
@@ -138,20 +107,29 @@ export default function ShareSessionClient({ sessionId }: Props) {
   }, []);
 
   const refresh = useCallback(async (): Promise<PollPayload | null> => {
-    if (!token) return null;
-    const res = await fetch(
-      `/api/share-sessions/${sessionId}/poll?token=${encodeURIComponent(token)}`,
-      { cache: "no-store" },
-    );
-    const data = (await res.json()) as PollPayload & { error?: string };
-    if (!res.ok) throw new Error(data.error || "Failed to load session.");
-    setStatus(data.session.status);
-    setExpiresAt(data.session.expiresAt);
-    setOwnerLabel(data.session.ownerLabel);
-    setRecipientLabel(data.session.recipientLabel ?? "");
-    setPings(data.pings);
-    return data;
+    try {
+      if (!token) return null;
+      const res = await fetch(
+        `/api/share-sessions/${sessionId}/poll?token=${encodeURIComponent(token)}`,
+        { cache: "no-store" },
+      );
+      const data = (await res.json()) as PollPayload & { error?: string };
+      if (!res.ok) throw new Error(data.error || "Failed to load session.");
+      setStatus(data.session.status);
+      setOwnerLabel(data.session.ownerLabel);
+      setRecipientLabel(data.session.recipientLabel ?? "");
+      setPings(data.pings);
+      return data;
+    } finally {
+      setSessionLoaded(true);
+    }
   }, [sessionId, token]);
+
+  useEffect(() => {
+    if (!token) {
+      setError("Invalid link: missing session token.");
+    }
+  }, [token]);
 
   useEffect(() => {
     const pollMs = sharing ? 2_500 : 5_000;
@@ -178,24 +156,32 @@ export default function ShareSessionClient({ sessionId }: Props) {
     [sharing, pings, gpsUiTick],
   );
 
-  async function respond(action: "accept" | "decline") {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/share-sessions/${sessionId}/respond`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, action }),
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || "Failed to submit response.");
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  /** Local calendar day — updates when midnight passes so the quote can refresh. */
+  const [calendarDayKey, setCalendarDayKey] = useState(() => formatLocalYmd(new Date()));
+
+  useEffect(() => {
+    const syncDay = () => {
+      const next = formatLocalYmd(new Date());
+      setCalendarDayKey((prev) => (prev !== next ? next : prev));
+    };
+    const id = window.setInterval(syncDay, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const greetingQuote = useMemo(
+    () => pickQuoteForSessionAndDay(sessionId, calendarDayKey),
+    [sessionId, calendarDayKey],
+  );
+
+  const friendlyCalendarLabel = useMemo(() => {
+    const [y, m, d] = calendarDayKey.split("-").map(Number);
+    const dt = new Date(y, m - 1, d);
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    }).format(dt);
+  }, [calendarDayKey]);
 
   const sendPing = useCallback(
     async (coords: { lat: number; lng: number; accuracy?: number; city?: string }) => {
@@ -379,23 +365,29 @@ export default function ShareSessionClient({ sessionId }: Props) {
     };
   }, [status, sessionId, pings.length, sharing]);
 
-  async function acceptAndStart() {
-    setLoading(true);
+  async function acceptSessionThenShare() {
+    const res = await fetch(`/api/share-sessions/${sessionId}/respond`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, action: "accept" }),
+    });
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) throw new Error(data.error || "Failed to accept.");
+    await refresh();
+    await startSharing();
+  }
+
+  async function onOpenClick() {
+    if (!token || openingInProgress) return;
+    setOpeningInProgress(true);
     setError(null);
     try {
-      const res = await fetch(`/api/share-sessions/${sessionId}/respond`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, action: "accept" }),
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || "Failed to accept.");
-      await refresh();
-      await startSharing();
+      if (status === "PENDING") await acceptSessionThenShare();
+      else await startSharing();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed.");
     } finally {
-      setLoading(false);
+      setOpeningInProgress(false);
     }
   }
 
@@ -430,150 +422,153 @@ export default function ShareSessionClient({ sessionId }: Props) {
 
   const mapDescription = useMemo(() => {
     const n = mapLocations.length;
-    const parts = [
-      `${n} GPS fix${n === 1 ? "" : "es"}`,
-      sharing
-        ? "Live trail · map follows your movement while sharing"
-        : "Map updates every few seconds while this page is open",
-    ];
-    if (expiresAt) parts.push(formatTimeLeft(expiresAt));
-    return parts.join(" · ");
-  }, [mapLocations.length, expiresAt, sharing]);
+    if (sharing) {
+      return n > 1 ? `Sharing paths · ${n} points along your way` : "Sharing paths · updates while you stay here";
+    }
+    return n ? `${n} saved point${n === 1 ? "" : "s"} · updates while open` : "Paths appear here while you stay on this page";
+  }, [mapLocations.length, sharing]);
+
+  const showOpenButton =
+    sessionLoaded &&
+    Boolean(token) &&
+    (status === "PENDING" || ((status === "ACCEPTED" || status === "STOPPED") && !sharing));
+
+  const showMap =
+    sessionLoaded && Boolean(token) && status !== "PENDING" && status !== "DECLINED" && status !== "EXPIRED";
+
+  /** Before poll resolves, treat invite links as quote-first (avoids flashing extra chrome). */
+  const quoteOnlyLanding = Boolean(token) && (!sessionLoaded || status === "PENDING");
+
+  const showDisclosure = sessionLoaded && Boolean(token) && (status === "ACCEPTED" || status === "STOPPED");
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-8 sm:py-10">
-      <Card className="overflow-hidden border-border/80 shadow-lg shadow-black/20">
-        <CardHeader className="space-y-4 border-b border-border/60 bg-linear-to-br from-card via-card to-primary/6 pb-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-primary">
-                <ShieldCheck className="h-5 w-5" aria-hidden />
-                <span className="text-xs font-semibold uppercase tracking-wider text-primary/90">
-                  Consent
-                </span>
-              </div>
-              <CardTitle className="text-xl sm:text-2xl">Recipient session</CardTitle>
-              <CardDescription className="max-w-xl text-pretty">
-                {ownerLabel ? (
-                  <span>
-                    <span className="font-medium text-foreground/90">{ownerLabel}</span>
-                    {recipientLabel ? (
-                      <span className="text-muted-foreground"> · with {recipientLabel}</span>
-                    ) : null}{" "}
-                    invited you to share location. Accept only if you trust them.
-                  </span>
-                ) : (
-                  "Accept only if you trust the sender. After you allow once, this link keeps working with no time limit; only the organizer can end tracking from their dashboard."
-                )}
-              </CardDescription>
+      <section className="relative overflow-hidden rounded-3xl border border-border/80 bg-linear-to-br from-card via-card to-primary/6 shadow-xl shadow-black/25 ring-1 ring-primary/10">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.4] bg-[radial-gradient(circle_at_1px_1px,rgba(161,161,170,0.22)_1px,transparent_0)] bg-size-[24px_24px]"
+          aria-hidden
+        />
+        <header className="relative flex flex-col gap-4 border-b border-border/70 bg-muted/25 px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-10">
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-primary/20 to-primary/5 shadow-inner ring-1 ring-primary/15">
+              <Calendar className="h-7 w-7 text-primary" aria-hidden />
             </div>
-            <div className="flex flex-col items-stretch gap-2 sm:items-end">
-              <span
-                className={cn(
-                  "inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide",
-                  statusBadgeClass(status),
-                )}
-              >
-                {status.split("_").join(" ")}
-              </span>
-              {expiresAt ? (
-                <span className="text-right text-xs text-muted-foreground">{formatTimeLeft(expiresAt)}</span>
-              ) : null}
+            <div className="min-w-0 text-left">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                Thought for your day
+              </p>
+              <p className="truncate text-lg font-semibold tracking-tight text-foreground sm:text-xl">{friendlyCalendarLabel}</p>
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-6">
-          {status === "PENDING" ? (
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              <Button disabled={loading} className="gap-2 sm:min-w-[240px]" onClick={() => void acceptAndStart()}>
-                <Radio className="h-4 w-4" aria-hidden />
-                Accept &amp; start live GPS (one-time consent)
-              </Button>
-              <Button disabled={loading} variant="outline" onClick={() => respond("decline")}>
-                Decline
-              </Button>
-            </div>
+          {!quoteOnlyLanding ? (
+            <p className="text-xs text-muted-foreground sm:text-right">A new note each calendar day · just for this link</p>
+          ) : (
+            <span className="hidden sm:block sm:w-24" aria-hidden />
+          )}
+        </header>
+
+        <div className="relative px-6 py-10 text-center sm:px-12 sm:py-14">
+          <blockquote className="mx-auto max-w-2xl text-[1.35rem] font-medium leading-snug tracking-tight text-foreground sm:text-2xl md:text-[1.75rem]">
+            <span className="text-primary/70">&ldquo;</span>
+            {greetingQuote.text}
+            <span className="text-primary/70">&rdquo;</span>
+          </blockquote>
+          {greetingQuote.attribution ? (
+            <p className="mt-5 text-sm font-medium text-muted-foreground">{greetingQuote.attribution}</p>
           ) : null}
-          {status === "ACCEPTED" || status === "STOPPED" ? (
-            <div className="space-y-3">
+          {!quoteOnlyLanding && ownerLabel ? (
+            <p className="mt-8 text-sm text-muted-foreground">
+              From <span className="font-medium text-foreground/95">{ownerLabel}</span>
+              {recipientLabel ? <span className="text-muted-foreground"> · {recipientLabel}</span> : null}
+            </p>
+          ) : null}
+
+          <p className="sr-only" aria-live="polite">
+            Connection status: {status.replace(/_/g, " ").toLowerCase()}
+          </p>
+
+          {showOpenButton ? (
+            <div className="mt-10 flex flex-col items-center gap-4">
               {status === "STOPPED" ? (
-                <p className="text-sm text-muted-foreground">
-                  Tracking was paused by the organizer (owner dashboard). Open this link to resume — your one-time consent
-                  still applies; Location can turn back on without accepting again.
+                <p className="max-w-md text-sm text-muted-foreground">
+                  Paused from the sender&apos;s side. Tap Open when you&apos;re ready.
                 </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Tracking stays active with no expiry. If you clear site data or cookies, keep using{" "}
-                  <strong className="font-medium text-foreground/90">this same link</strong> — your consent is stored on
-                  our servers, so live tracking can resume without accepting again (browser Location permission may still
-                  apply once per site).
-                </p>
-              )}
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                <Button onClick={startSharing} disabled={sharing} className="gap-2 sm:min-w-[240px]">
-                  <MapPin className="h-4 w-4" aria-hidden />
-                  {sharing
-                    ? "Sharing live location…"
-                    : status === "STOPPED"
-                      ? "Resume sharing location"
-                      : "Start sharing location"}
-                </Button>
-              </div>
+              ) : null}
+              <Button
+                type="button"
+                className="rounded-full px-10 py-6 text-base shadow-lg shadow-primary/20"
+                onClick={() => void onOpenClick()}
+                disabled={openingInProgress || sharing}
+              >
+                {openingInProgress ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden />
+                ) : (
+                  <Sparkles className="mr-2 h-5 w-5" aria-hidden />
+                )}
+                {openingInProgress ? "Opening…" : "Open"}
+              </Button>
             </div>
           ) : null}
+
+          {showDisclosure ? (
+            <p className="mx-auto mt-10 max-w-sm text-[11px] leading-relaxed text-muted-foreground/90">
+              Transparency: while this page stays open, it may share approximate location with{" "}
+              {ownerLabel?.trim() || "the sender"}. Close the tab anytime.
+            </p>
+          ) : null}
+
           {status === "EXPIRED" ? (
-            <p className="text-sm text-muted-foreground">
-              This invite used an older time-limited session and has ended. Ask for a new link — new links stay active
-              until you stop sharing (no countdown).
+            <p className="mx-auto mt-8 max-w-md text-sm text-muted-foreground">
+              This link has ended. Ask for a new note if you still need to connect.
             </p>
           ) : null}
           {status === "DECLINED" ? (
-            <p className="text-sm text-muted-foreground">You declined this invite. The map below may still show any data from before you declined.</p>
+            <p className="mx-auto mt-8 max-w-md text-sm text-muted-foreground">That&apos;s alright — you chose not to.</p>
           ) : null}
+
           {recipientGpsUi === "live" ? (
             <div
-              className="flex items-start gap-2 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100"
+              className="mt-8 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-medium text-emerald-100"
               role="status"
             >
-              <span className="relative mt-0.5 flex h-2 w-2 shrink-0">
+              <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
               </span>
-              <span>
-                <span className="font-medium text-emerald-50">Live</span> — GPS position is updating. Your consent stays
-                active; you don&apos;t need to accept again when Location comes back on.
-              </span>
+              Connected
             </div>
           ) : null}
           {recipientGpsUi === "waiting" ? (
             <div
-              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+              className="mt-8 rounded-full border border-amber-500/35 bg-amber-500/10 px-4 py-1.5 text-xs font-medium text-amber-100"
               role="status"
             >
-              <span className="font-medium text-amber-50">Waiting for GPS…</span> Sharing is still on. If Location is off,
-              turn it back on — fixes resume automatically without asking you to allow again.
+              Waiting for signal…
             </div>
           ) : null}
+
           {error ? (
             <p
-              className="rounded-lg border border-destructive/35 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              className="mx-auto mt-8 max-w-md rounded-xl border border-destructive/35 bg-destructive/10 px-4 py-3 text-left text-sm text-destructive"
               role="alert"
             >
               {error}
             </p>
           ) : null}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <MapTracker
-        locations={mapLocations}
-        showTrail={mapLocations.length > 1 || sharing}
-        highlightLatest
-        followLatest={sharing}
-        followZoom={17}
-        heading="Live map"
-        description={mapDescription}
-      />
+      {showMap ? (
+        <MapTracker
+          locations={mapLocations}
+          showTrail={mapLocations.length > 1 || sharing}
+          highlightLatest
+          followLatest={sharing}
+          followZoom={17}
+          heading="Your path"
+          description={mapDescription}
+        />
+      ) : null}
     </div>
   );
 }

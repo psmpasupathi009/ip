@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import ShareSessionClient from "@/components/ShareSessionClient";
 
 export const metadata: Metadata = {
-  title: "Recipient consent",
-  description: "Accept or decline location sharing request.",
+  title: "Thought for your day",
+  description: "A shared daily note from someone who cares about you.",
 };
 
 export default async function ShareSessionPage({
