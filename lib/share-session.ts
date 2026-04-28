@@ -10,7 +10,21 @@ export function normalizeLabel(value: unknown): string {
   return value.trim().slice(0, 80);
 }
 
+/** Far-future cutoff stored as `expiresAt` for “active until stopped” sessions (no timer). */
+const LIFETIME_THRESHOLD_MS = Date.UTC(2090, 0, 1);
+
+export function isLifetimeExpiry(expiresAt: Date): boolean {
+  return expiresAt.getTime() >= LIFETIME_THRESHOLD_MS;
+}
+
+/** Works with ISO strings from the API / poll payload (client-safe). */
+export function isLifetimeExpiryIso(iso: string): boolean {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) && t >= LIFETIME_THRESHOLD_MS;
+}
+
 export function isExpired(expiresAt: Date): boolean {
+  if (isLifetimeExpiry(expiresAt)) return false;
   return expiresAt.getTime() <= Date.now();
 }
 

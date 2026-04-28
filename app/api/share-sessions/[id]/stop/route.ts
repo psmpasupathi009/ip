@@ -19,9 +19,15 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "Session not found." }, { status: 404 });
     }
     const isOwner = session.ownerToken === token;
-    const isRecipient = session.recipientToken === token;
-    if (!isOwner && !isRecipient) {
+    const isRecipientToken = session.recipientToken === token;
+    if (!isOwner && !isRecipientToken) {
       return NextResponse.json({ error: "Unauthorized token." }, { status: 403 });
+    }
+    if (!isOwner) {
+      return NextResponse.json(
+        { error: "Only the session owner can end tracking from the owner dashboard." },
+        { status: 403 },
+      );
     }
     if (session.status === "STOPPED") {
       return NextResponse.json({ ok: true, status: session.status });

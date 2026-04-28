@@ -7,6 +7,12 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { MapLocation } from "@/components/MapTracker";
+import {
+  formatPingAge,
+  latestPingCapturedAt,
+  ownerRecipientGpsBanner,
+} from "@/lib/gps-live-status";
+import { isLifetimeExpiryIso } from "@/lib/share-session";
 import { cn } from "@/lib/utils";
 
 const MapTracker = dynamic(() => import("@/components/MapTracker"), {
@@ -41,6 +47,7 @@ type PollPayload = {
 };
 
 function formatTimeLeft(iso: string) {
+  if (isLifetimeExpiryIso(iso)) return "No expiry — until stopped";
   const ms = new Date(iso).getTime() - Date.now();
   if (!Number.isFinite(ms)) return "";
   if (ms <= 0) return "Session ended";
@@ -78,6 +85,7 @@ export default function ShareManageClient({ sessionId }: Props) {
   const [recipientLabel, setRecipientLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pings, setPings] = useState<PollPayload["pings"]>([]);
+  const [gpsUiTick, setGpsUiTick] = useState(0);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -94,15 +102,27 @@ export default function ShareManageClient({ sessionId }: Props) {
   }, [sessionId, token]);
 
   useEffect(() => {
+    const pollMs = status === "ACCEPTED" ? 2_500 : 5_000;
     const initialLoad = setTimeout(() => {
       refresh().catch((e) => setError(e instanceof Error ? e.message : "Failed"));
     }, 0);
-    const id = setInterval(() => refresh().catch(() => {}), 5000);
+    const id = setInterval(() => refresh().catch(() => {}), pollMs);
     return () => {
       clearTimeout(initialLoad);
       clearInterval(id);
     };
-  }, [refresh]);
+  }, [refresh, status]);
+
+  useEffect(() => {
+    if (status !== "ACCEPTED") return;
+    const id = window.setInterval(() => setGpsUiTick((n) => n + 1), 2000);
+    return () => window.clearInterval(id);
+  }, [status]);
+
+  const ownerGpsUi = useMemo(
+    () => ownerRecipientGpsBanner(status, pings),
+    [status, pings, gpsUiTick],
+  );
 
   async function stopSharing() {
     await fetch(`/api/share-sessions/${sessionId}/stop`, {
@@ -128,19 +148,26 @@ export default function ShareManageClient({ sessionId }: Props) {
         accuracy: p.accuracy,
         timestamp: p.capturedAt,
         userAgent: p.userAgent || "",
+        recordKind: "consent",
+        sessionId,
+        sessionStatus: status,
       })),
-    [pings],
+    [pings, sessionId, status],
   );
+
+  const ownerFollowLive = status === "ACCEPTED" && mapLocations.length > 0;
 
   const mapDescription = useMemo(() => {
     const n = mapLocations.length;
     const parts = [
       `${n} GPS fix${n === 1 ? "" : "es"} on this session`,
-      "Recipient must start sharing from their phone after accepting",
+      ownerFollowLive
+        ? "Live trail · map follows their latest position while session is active"
+        : "Recipient must start sharing from their phone after accepting",
     ];
     if (expiresAt) parts.push(formatTimeLeft(expiresAt));
     return parts.join(" · ");
-  }, [mapLocations.length, expiresAt]);
+  }, [mapLocations.length, expiresAt, ownerFollowLive]);
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-8 sm:py-10">
@@ -184,13 +211,14 @@ export default function ShareManageClient({ sessionId }: Props) {
         <CardContent className="space-y-4 pt-6">
           {status === "STOPPED" ? (
             <p className="text-sm text-muted-foreground">
-              Session is stopped. Your dashboard and recipient links still open until expiry; the recipient can tap
-              &quot;Share location again&quot; on their phone to send more GPS fixes. Previous fixes stay on the map.
+              Session is stopped. Your dashboard and recipient links still work until someone ends them; the recipient can
+              resume from their phone. Previous fixes stay on the map.
             </p>
           ) : null}
           {status === "EXPIRED" ? (
             <p className="text-sm text-muted-foreground">
-              This session has expired. Create a new share from the consent page if you need another round.
+              This invite used an older time-limited session. Create a new link — new sessions stay active until you stop
+              them (no countdown).
             </p>
           ) : null}
           {status === "PENDING" ? (
@@ -200,6 +228,45 @@ export default function ShareManageClient({ sessionId }: Props) {
           ) : null}
           {status === "DECLINED" ? (
             <p className="text-sm text-muted-foreground">The recipient declined this invite.</p>
+          ) : null}
+          {status === "ACCEPTED" ? (
+            <p className="text-xs text-muted-foreground">
+              Recipients only allow &amp; share once — they don&apos;t see a stop button. Use{" "}
+              <strong className="font-medium text-foreground/90">Stop session</strong> here to pause tracking for everyone.
+            </p>
+          ) : null}
+          {ownerGpsUi === "live" ? (
+            <div
+              className="flex items-start gap-2 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100"
+              role="status"
+            >
+              <span className="relative mt-0.5 flex h-2 w-2 shrink-0">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+              </span>
+              <span>
+                <span className="font-medium text-emerald-50">Live</span> — receiving GPS updates from the
+                recipient&apos;s device.
+              </span>
+            </div>
+          ) : null}
+          {ownerGpsUi === "waiting_first" ? (
+            <div
+              className="rounded-lg border border-border/80 bg-muted/30 px-3 py-2 text-sm text-muted-foreground"
+              role="status"
+            >
+              Waiting for the recipient to accept and start sharing on their phone — no GPS fixes yet.
+            </div>
+          ) : null}
+          {ownerGpsUi === "stale" ? (
+            <div
+              className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+              role="status"
+            >
+              <span className="font-medium text-amber-50">No recent GPS fix</span> (last update{" "}
+              {formatPingAge(latestPingCapturedAt(pings)!)}). Location may be off or the tab in the background — when
+              GPS returns, tracking continues without a new invite.
+            </div>
           ) : null}
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <Button variant="destructive" className="gap-2 sm:w-fit" onClick={stopSharing} disabled={status !== "ACCEPTED"}>
@@ -220,8 +287,10 @@ export default function ShareManageClient({ sessionId }: Props) {
 
       <MapTracker
         locations={mapLocations}
-        showTrail={mapLocations.length > 1}
+        showTrail={mapLocations.length > 1 || ownerFollowLive}
         highlightLatest
+        followLatest={ownerFollowLive}
+        followZoom={17}
         heading="Live map"
         description={mapDescription}
       />

@@ -9,7 +9,7 @@ import {
 
 type Params = { params: Promise<{ id: string }> };
 
-const RATE_WINDOW_MS = 5_000;
+const RATE_WINDOW_MS = 3_000;
 const rateBucket = new Map<string, number>();
 
 export async function POST(request: NextRequest, { params }: Params) {
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const prevAt = rateBucket.get(bucketKey);
     if (prevAt && now - prevAt < RATE_WINDOW_MS) {
       return NextResponse.json(
-        { error: "Too many updates. Send at most one ping per 5 seconds." },
+        { error: "Too many updates. Send at most one ping per 3 seconds." },
         { status: 429 },
       );
     }

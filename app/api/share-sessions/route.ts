@@ -3,19 +3,14 @@ import prisma from "@/lib/prisma";
 import { resolveShareBaseUrlFromRequest } from "@/lib/share-base-url";
 import { makeShareToken, normalizeLabel } from "@/lib/share-session";
 
-const DEFAULT_EXPIRES_MINUTES = 60;
-/** Longest allowed session window; owner/recipient can still stop earlier. */
-const MAX_EXPIRES_MINUTES = 7 * 24 * 60;
+/** Stored as session end time; `isLifetimeExpiry` treats this as “no timer” (until stopped). */
+const LIFETIME_EXPIRES_AT = new Date(Date.UTC(2099, 11, 31, 23, 59, 59, 999));
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const ownerLabel = normalizeLabel(body.ownerLabel);
     const recipientLabel = normalizeLabel(body.recipientLabel) || null;
-    const expiresMinutesRaw = Number(body.expiresMinutes);
-    const expiresMinutes = Number.isFinite(expiresMinutesRaw)
-      ? Math.min(Math.max(Math.floor(expiresMinutesRaw), 5), MAX_EXPIRES_MINUTES)
-      : DEFAULT_EXPIRES_MINUTES;
 
     if (!ownerLabel) {
       return NextResponse.json(
@@ -24,14 +19,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const now = Date.now();
     const session = await prisma.shareSession.create({
       data: {
         ownerLabel,
         recipientLabel,
         ownerToken: makeShareToken(),
         recipientToken: makeShareToken(),
-        expiresAt: new Date(now + expiresMinutes * 60 * 1000),
+        expiresAt: LIFETIME_EXPIRES_AT,
       },
     });
 

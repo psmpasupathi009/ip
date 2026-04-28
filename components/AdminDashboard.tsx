@@ -32,6 +32,7 @@ import {
 import type { MapLocation } from "@/components/MapTracker";
 import type { AdminShareSessionRow } from "@/lib/admin-share-sessions-list";
 import { formatUtcDateTime } from "@/lib/format-timestamp";
+import { isLifetimeExpiryIso } from "@/lib/share-session";
 import { parseUserAgent } from "@/lib/user-agent";
 import { cn } from "@/lib/utils";
 
@@ -221,7 +222,7 @@ export default function AdminDashboard({
           <h1 className="text-2xl font-semibold tracking-tight">Admin dashboard</h1>
           <p className="text-sm text-muted-foreground">
             Shows <strong>IMEI tracker fixes</strong> plus <strong>consent live GPS pings</strong> in one feed (newest
-            first). Delete is only available for tracker rows.
+            first). Consent links stay valid until stopped (no clock expiry). Delete is only available for tracker rows.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -314,7 +315,7 @@ export default function AdminDashboard({
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="sticky top-0 z-10 bg-card">Created (UTC)</TableHead>
-                    <TableHead className="sticky top-0 z-10 bg-card">Expires (UTC)</TableHead>
+                    <TableHead className="sticky top-0 z-10 bg-card">Expiry</TableHead>
                     <TableHead className="sticky top-0 z-10 bg-card">Status</TableHead>
                     <TableHead className="sticky top-0 z-10 bg-card">Owner</TableHead>
                     <TableHead className="sticky top-0 z-10 bg-card">Recipient</TableHead>
@@ -333,7 +334,9 @@ export default function AdminDashboard({
                           {formatUtcDateTime(s.createdAt)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap font-mono text-xs">
-                          {formatUtcDateTime(s.expiresAt)}
+                          {isLifetimeExpiryIso(s.expiresAt)
+                            ? "Until stopped"
+                            : formatUtcDateTime(s.expiresAt)}
                         </TableCell>
                         <TableCell className="text-xs capitalize">{s.status.toLowerCase()}</TableCell>
                         <TableCell className="max-w-[120px] truncate text-sm">{s.ownerLabel}</TableCell>

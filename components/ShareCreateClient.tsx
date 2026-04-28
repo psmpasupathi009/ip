@@ -6,26 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
-
-/** Preset values must stay within API `MAX_EXPIRES_MINUTES` (7 days). */
-const EXPIRY_OPTIONS = [
-  { minutes: 30, label: "30 minutes" },
-  { minutes: 60, label: "1 hour" },
-  { minutes: 120, label: "2 hours" },
-  { minutes: 360, label: "6 hours" },
-  { minutes: 720, label: "12 hours" },
-  { minutes: 1440, label: "24 hours (1 day)" },
-  { minutes: 4320, label: "3 days" },
-  { minutes: 10080, label: "7 days — live until window ends or someone stops" },
-] as const;
-
-const selectClassName = cn(
-  "flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background",
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-  "disabled:cursor-not-allowed disabled:opacity-50",
-);
-
 type CreateResponse = {
   sessionId: string;
   status: string;
@@ -39,7 +19,6 @@ type CopiedField = "recipient" | "owner" | null;
 export default function ShareCreateClient() {
   const [ownerLabel, setOwnerLabel] = useState("");
   const [recipientLabel, setRecipientLabel] = useState("");
-  const [expiresMinutes, setExpiresMinutes] = useState(String(EXPIRY_OPTIONS[1].minutes));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreateResponse | null>(null);
@@ -55,7 +34,6 @@ export default function ShareCreateClient() {
         body: JSON.stringify({
           ownerLabel,
           recipientLabel,
-          expiresMinutes: Number(expiresMinutes),
         }),
       });
       const data = (await res.json()) as CreateResponse & { error?: string };
@@ -89,8 +67,8 @@ export default function ShareCreateClient() {
             Create consent link
           </CardTitle>
           <CardDescription className="text-pretty">
-            Send the recipient link. After they accept and start GPS on their phone, positions appear on the live map
-            for the whole session window (or until someone stops it).
+            Send the recipient link. They confirm once; tracking has no countdown expiry. Only you can end tracking from
+            your owner dashboard — recipients don&apos;t get a stop button on their phone.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 pt-6">
@@ -114,23 +92,6 @@ export default function ShareCreateClient() {
               autoComplete="off"
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="expiresMinutes">Session length</Label>
-            <select
-              id="expiresMinutes"
-              className={selectClassName}
-              value={expiresMinutes}
-              onChange={(e) => setExpiresMinutes(e.target.value)}
-              aria-label="Session length in minutes"
-            >
-              {EXPIRY_OPTIONS.map((opt) => (
-                <option key={opt.minutes} value={String(opt.minutes)}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">Longer windows keep the map session valid for extended live tracking.</p>
-          </div>
           <Button disabled={loading} onClick={createSession} className="w-full gap-2 sm:h-11">
             {loading ? "Creating…" : "Create links"}
           </Button>
@@ -148,9 +109,7 @@ export default function ShareCreateClient() {
             <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-4 sm:p-5">
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border/60 pb-3">
                 <p className="text-sm font-medium text-foreground">Links ready</p>
-                <p className="text-xs text-muted-foreground">
-                  Expires {new Date(result.expiresAt).toLocaleString()}
-                </p>
+                <p className="text-xs text-muted-foreground">Active until stopped — no countdown expiry</p>
               </div>
 
               <div className="space-y-2">

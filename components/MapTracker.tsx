@@ -47,6 +47,13 @@ export type MapTrackerProps = {
   showTrail?: boolean;
   /** Pulse + accuracy ring on the newest fix (best with `showTrail` or sparse points). */
   highlightLatest?: boolean;
+  /**
+   * Keep the map centered on the newest fix as it moves (navigation-style).
+   * Skips wide fitBounds zoom-outs so the trail stays readable while moving.
+   */
+  followLatest?: boolean;
+  /** Zoom level while following (default 17). */
+  followZoom?: number;
   heading?: string;
   description?: string;
 };
@@ -194,6 +201,30 @@ function MapBounds({
   return null;
 }
 
+/** Smoothly pans the map to follow the latest ping while someone is moving. */
+function FollowLatest({
+  lat,
+  lng,
+  zoom,
+  moveKey,
+}: {
+  lat: number;
+  lng: number;
+  zoom: number;
+  /** Changes when a new fix arrives (timestamp/id), even if coords repeat. */
+  moveKey: string;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    fixDefaultIcons();
+    map.flyTo([lat, lng], zoom, { duration: 0.5, easeLinearity: 0.25 });
+    requestAnimationFrame(() => map.invalidateSize());
+  }, [map, lat, lng, zoom, moveKey]);
+
+  return null;
+}
+
 function useSortedLocations(locations: MapLocation[]) {
   return useMemo(() => {
     const chrono = [...locations].sort(
@@ -210,6 +241,8 @@ export default function MapTracker({
   locations,
   showTrail = false,
   highlightLatest = false,
+  followLatest = false,
+  followZoom = 17,
   heading = "Map",
   description,
 }: MapTrackerProps) {
@@ -273,7 +306,10 @@ export default function MapTracker({
     );
   }
 
-  const center = boundsPoints[0] ?? [20, 0];
+  const useFollowCamera = Boolean(followLatest && highlightLatest && latest);
+  const center =
+    useFollowCamera && latest ? ([latest.lat, latest.lng] as [number, number]) : boundsPoints[0] ?? [20, 0];
+  const mapZoom = useFollowCamera ? followZoom : 13;
   const showOnlyLatestMarker =
     Boolean(showTrail && highlightLatest && latest && trail.length > 1);
 
@@ -303,7 +339,7 @@ export default function MapTracker({
         <div className="relative z-0 h-[min(58vh,560px)] w-full min-h-[320px]">
           <MapContainer
             center={center}
-            zoom={13}
+            zoom={mapZoom}
             className="h-full w-full [&_.leaflet-control-attribution]:bg-card/90 [&_.leaflet-control-attribution]:text-[10px] [&_.leaflet-control-attribution]:text-muted-foreground"
             scrollWheelZoom
           >
@@ -334,15 +370,24 @@ export default function MapTracker({
 
             <ScaleControl position="bottomleft" imperial={false} />
 
-            <MapBounds points={boundsPoints} padLatLng={padForCircle} />
+            {useFollowCamera && latest ? (
+              <FollowLatest
+                lat={latest.lat}
+                lng={latest.lng}
+                zoom={followZoom}
+                moveKey={`${latest._id}:${latest.timestamp}`}
+              />
+            ) : (
+              <MapBounds points={boundsPoints} padLatLng={padForCircle} />
+            )}
 
             {showTrail && trail.length > 1 ? (
               <Polyline
                 positions={trail}
                 pathOptions={{
                   color: "#6366f1",
-                  weight: 4,
-                  opacity: 0.82,
+                  weight: followLatest ? 5 : 4,
+                  opacity: followLatest ? 0.92 : 0.82,
                   lineJoin: "round",
                   lineCap: "round",
                 }}
