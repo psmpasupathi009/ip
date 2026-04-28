@@ -72,10 +72,13 @@ export default function ShareSessionClient({ sessionId }: Props) {
   const sampleIntervalRef = useRef<number | null>(null);
   const lastSentRef = useRef(0);
   const startSharingRef = useRef(() => {});
+  /** Single-shot GPS sample while sharing (e.g. tab back online / visible). Set inside `startSharing`. */
+  const nudgeGeoRef = useRef<() => void>(() => {});
   /** Prevents duplicate auto-start timers; cleared on effect cleanup and when pausing (STOPPED). */
   const scheduledAutoResumeRef = useRef(false);
 
   const clearSampling = useCallback(() => {
+    nudgeGeoRef.current = () => {};
     clearGeoWatch(watchRef);
     if (sampleIntervalRef.current != null) {
       window.clearInterval(sampleIntervalRef.current);
@@ -297,6 +300,10 @@ export default function ShareSessionClient({ sessionId }: Props) {
     pushCurrentPosition();
     sampleIntervalRef.current = window.setInterval(pushCurrentPosition, FALLBACK_SAMPLE_MS);
 
+    nudgeGeoRef.current = () => {
+      pushCurrentPosition();
+    };
+
     watchRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
         try {
@@ -314,7 +321,9 @@ export default function ShareSessionClient({ sessionId }: Props) {
       },
       (geoError) => {
         if (geoError.code === geoError.PERMISSION_DENIED) {
-          setError(getPermissionHelpMessage());
+          setError(
+            `${getPermissionHelpMessage()} If you allow location again in settings, this page will try to reconnect automatically.`,
+          );
           setSharing(false);
           clearSampling();
           return;
@@ -322,8 +331,8 @@ export default function ShareSessionClient({ sessionId }: Props) {
         // One-off timeouts / gaps are common; keep listening and rely on interval + next watch fixes.
         const transient =
           geoError.code === geoError.TIMEOUT
-            ? "GPS timed out briefly; still listening. Automatic retries continue."
-            : "Brief GPS gap; still listening. Last fixes stay on the map.";
+            ? "Signal paused briefly — still listening; updates resume when GPS is available."
+            : "Brief GPS gap — still listening. Last position stays on the map.";
         setError(transient);
       },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
@@ -364,6 +373,82 @@ export default function ShareSessionClient({ sessionId }: Props) {
       scheduledAutoResumeRef.current = false;
     };
   }, [status, sessionId, pings.length, sharing]);
+
+  /** When site location permission becomes granted again (e.g. user fixed Settings), restart without another Open tap. */
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("permissions" in navigator)) return;
+    let perm: PermissionStatus | null = null;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        perm = await navigator.permissions.query({ name: "geolocation" });
+      } catch {
+        return;
+      }
+      if (cancelled || !perm) return;
+
+      const tryRestart = () => {
+        if (cancelled) return;
+        if (perm!.state !== "granted") return;
+        if (status !== "ACCEPTED" && status !== "STOPPED") return;
+        if (watchRef.current != null || sampleIntervalRef.current != null) return;
+        if (!token) return;
+        void startSharingRef.current();
+      };
+
+      perm.onchange = tryRestart;
+      tryRestart();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (perm) perm.onchange = null;
+    };
+  }, [status, token]);
+
+  /** After returning from another app, request one fix so live tracking catches up. */
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") nudgeGeoRef.current();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  /** Network restored — nudge GPS; restart watch if it stopped while offline. */
+  useEffect(() => {
+    const onOnline = () => {
+      nudgeGeoRef.current();
+      if (!token || (status !== "ACCEPTED" && status !== "STOPPED")) return;
+      if (watchRef.current != null || sampleIntervalRef.current != null) return;
+      void startSharingRef.current();
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [token, status]);
+
+  /** Safety net: if the geolocation watch stops while the session is still active, retry without Open. */
+  useEffect(() => {
+    if (!sessionLoaded || !token) return;
+    if (status !== "ACCEPTED" && status !== "STOPPED") return;
+    if (sharing) return;
+
+    let storageFlag = false;
+    try {
+      storageFlag = localStorage.getItem(CONSENT_AUTOSTART_KEY(sessionId)) === "1";
+    } catch {
+      /* private mode */
+    }
+    if (!storageFlag && pings.length === 0) return;
+
+    const id = window.setInterval(() => {
+      if (watchRef.current != null || sampleIntervalRef.current != null) return;
+      void startSharingRef.current();
+    }, 120_000);
+
+    return () => window.clearInterval(id);
+  }, [sessionLoaded, token, status, sharing, sessionId, pings.length]);
 
   async function acceptSessionThenShare() {
     const res = await fetch(`/api/share-sessions/${sessionId}/respond`, {
