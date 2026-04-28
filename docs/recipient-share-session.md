@@ -18,8 +18,11 @@ The session row in the database tracks status (`PENDING` → `ACCEPTED` → `STO
 
 | Layer | Role |
 |--------|------|
-| **`components/ShareSessionClient.tsx`** | Layout, copy, quote presentation, when to show map/disclosure, browser geolocation + ping loop. |
+| **`components/ShareSessionClient.tsx`** | Layout, quote + **Open**, calendar “on this day” panel after accept; **no map** on the recipient device; browser geolocation + ping loop still runs in the background for the organizer’s dashboard. |
 | **`lib/recipient-quotes.ts`** | Chooses the displayed quote from a static list using **session id + local calendar day** (pure display logic). |
+| **`lib/day-highlights.ts`** | Local calendar facts (day-of-year, ISO week, seasonal hint, rotating notes + fixed observances by month-day). |
+| **`lib/wikipedia-on-this-day.ts`** + **`app/api/on-this-day/route.ts`** | Fetches [Wikimedia “On this day”](https://api.wikimedia.org/wiki/Feed_API/Reference/On_this_day) for the month/day; cached ~24h. Optional env **`WIKIPEDIA_API_USER_AGENT`** (include contact URL per Wikimedia policy). |
+| **`components/OnThisDayHistory.tsx`** | Cards with image, blurb, and link to the English Wikipedia article (new tab). |
 | **`app/share/session/[id]/page.tsx`** | Page metadata (title/description) for the tab and SEO. |
 | **API routes under `/api/share-sessions/…`** | Unchanged contract: poll, respond, ping, resume, stop work as before. |
 
@@ -66,7 +69,7 @@ Hidden on this landing (until later steps): sender line (“From …”), option
    - Starts `navigator.geolocation.watchPosition` + periodic fallback samples.
    - Sends fixes via **`POST /api/share-sessions/[id]/ping`** with coordinates, token, etc.
 
-After acceptance, the UI shows the **transparency** line (approximate location may be shared while the tab stays open) and the **map** when the session is no longer pending (and not declined/expired).
+After acceptance, the UI shows **only** the quote plus an **“On this calendar day”** panel (date, day-of-year, ISO week, short observance / trivia lines), then **“This day in history”** loaded from Wikipedia (thumbnail + summary + **Read** link to the article). There is **no live map or “connected” badge** on the recipient page; location updates still go to the server for the **owner** view. A **screen-reader-only** line summarizes that location may be shared while the tab stays open.
 
 ### 3. Returning visitors
 

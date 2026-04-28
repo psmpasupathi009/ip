@@ -1,25 +1,15 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { Calendar, Loader2, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import type { MapLocation } from "@/components/MapTracker";
-import { recipientGpsBanner } from "@/lib/gps-live-status";
+import OnThisDayHistory from "@/components/OnThisDayHistory";
+import { getDayHighlights } from "@/lib/day-highlights";
 import { formatLocalYmd, pickQuoteForSessionAndDay } from "@/lib/recipient-quotes";
 
 const CONSENT_AUTOSTART_KEY = (sessionId: string) => `consent-live-autostart:${sessionId}`;
-
-const MapTracker = dynamic(() => import("@/components/MapTracker"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex min-h-[360px] items-center justify-center rounded-2xl border border-border/80 bg-muted/20">
-      <Loader2 className="h-9 w-9 animate-spin text-primary" aria-hidden />
-    </div>
-  ),
-});
 
 type Props = { sessionId: string };
 type PollPayload = {
@@ -57,8 +47,6 @@ export default function ShareSessionClient({ sessionId }: Props) {
   const params = useSearchParams();
   const token = params.get("token") ?? "";
   const [status, setStatus] = useState("PENDING");
-  const [ownerLabel, setOwnerLabel] = useState("");
-  const [recipientLabel, setRecipientLabel] = useState("");
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pings, setPings] = useState<PollPayload["pings"]>([]);
@@ -66,8 +54,6 @@ export default function ShareSessionClient({ sessionId }: Props) {
   const [sessionLoaded, setSessionLoaded] = useState(false);
   /** User tapped Open (accept + GPS, or resume) — quote-only screen hides extras until then when status was PENDING. */
   const [openingInProgress, setOpeningInProgress] = useState(false);
-  /** Re-render periodically while sharing so Live vs Waiting updates when GPS drops. */
-  const [gpsUiTick, setGpsUiTick] = useState(0);
   const watchRef = useRef<number | null>(null);
   const sampleIntervalRef = useRef<number | null>(null);
   const lastSentRef = useRef(0);
@@ -119,8 +105,6 @@ export default function ShareSessionClient({ sessionId }: Props) {
       const data = (await res.json()) as PollPayload & { error?: string };
       if (!res.ok) throw new Error(data.error || "Failed to load session.");
       setStatus(data.session.status);
-      setOwnerLabel(data.session.ownerLabel);
-      setRecipientLabel(data.session.recipientLabel ?? "");
       setPings(data.pings);
       return data;
     } finally {
@@ -148,17 +132,6 @@ export default function ShareSessionClient({ sessionId }: Props) {
     };
   }, [refresh, sharing]);
 
-  useEffect(() => {
-    if (!sharing) return;
-    const id = window.setInterval(() => setGpsUiTick((n) => n + 1), 2000);
-    return () => window.clearInterval(id);
-  }, [sharing]);
-
-  const recipientGpsUi = useMemo(
-    () => recipientGpsBanner(sharing, pings),
-    [sharing, pings, gpsUiTick],
-  );
-
   /** Local calendar day — updates when midnight passes so the quote can refresh. */
   const [calendarDayKey, setCalendarDayKey] = useState(() => formatLocalYmd(new Date()));
 
@@ -185,6 +158,8 @@ export default function ShareSessionClient({ sessionId }: Props) {
       day: "numeric",
     }).format(dt);
   }, [calendarDayKey]);
+
+  const dayHighlights = useMemo(() => getDayHighlights(calendarDayKey), [calendarDayKey]);
 
   const sendPing = useCallback(
     async (coords: { lat: number; lng: number; accuracy?: number; city?: string }) => {
@@ -483,48 +458,17 @@ export default function ShareSessionClient({ sessionId }: Props) {
     [clearSampling],
   );
 
-  const mapLocations: MapLocation[] = useMemo(
-    () =>
-      pings.map((p) => ({
-        _id: p.id,
-        imei: "consent-session",
-        sim: "",
-        mobile: "",
-        lat: p.lat,
-        lng: p.lng,
-        city: p.city || "",
-        source: p.source || "gps",
-        ip: p.ip || "",
-        accuracy: p.accuracy,
-        timestamp: p.capturedAt,
-        userAgent: p.userAgent || "",
-        recordKind: "consent",
-        sessionId,
-        sessionStatus: status,
-      })),
-    [pings, sessionId, status],
-  );
-
-  const mapDescription = useMemo(() => {
-    const n = mapLocations.length;
-    if (sharing) {
-      return n > 1 ? `Sharing paths · ${n} points along your way` : "Sharing paths · updates while you stay here";
-    }
-    return n ? `${n} saved point${n === 1 ? "" : "s"} · updates while open` : "Paths appear here while you stay on this page";
-  }, [mapLocations.length, sharing]);
-
   const showOpenButton =
     sessionLoaded &&
     Boolean(token) &&
     (status === "PENDING" || ((status === "ACCEPTED" || status === "STOPPED") && !sharing));
 
-  const showMap =
-    sessionLoaded && Boolean(token) && status !== "PENDING" && status !== "DECLINED" && status !== "EXPIRED";
-
   /** Before poll resolves, treat invite links as quote-first (avoids flashing extra chrome). */
   const quoteOnlyLanding = Boolean(token) && (!sessionLoaded || status === "PENDING");
 
-  const showDisclosure = sessionLoaded && Boolean(token) && (status === "ACCEPTED" || status === "STOPPED");
+  /** After Open / active session: show calendar + “this day” notes (map stays off; GPS still runs in background). */
+  const showDayPanel =
+    sessionLoaded && Boolean(token) && (status === "ACCEPTED" || status === "STOPPED");
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-8 sm:py-10">
@@ -545,11 +489,7 @@ export default function ShareSessionClient({ sessionId }: Props) {
               <p className="truncate text-lg font-semibold tracking-tight text-foreground sm:text-xl">{friendlyCalendarLabel}</p>
             </div>
           </div>
-          {!quoteOnlyLanding ? (
-            <p className="text-xs text-muted-foreground sm:text-right">A new note each calendar day · just for this link</p>
-          ) : (
-            <span className="hidden sm:block sm:w-24" aria-hidden />
-          )}
+          <span className="hidden sm:block sm:w-24" aria-hidden />
         </header>
 
         <div className="relative px-6 py-10 text-center sm:px-12 sm:py-14">
@@ -558,13 +498,11 @@ export default function ShareSessionClient({ sessionId }: Props) {
             {greetingQuote.text}
             <span className="text-primary/70">&rdquo;</span>
           </blockquote>
-          {greetingQuote.attribution ? (
-            <p className="mt-5 text-sm font-medium text-muted-foreground">{greetingQuote.attribution}</p>
-          ) : null}
-          {!quoteOnlyLanding && ownerLabel ? (
-            <p className="mt-8 text-sm text-muted-foreground">
-              From <span className="font-medium text-foreground/95">{ownerLabel}</span>
-              {recipientLabel ? <span className="text-muted-foreground"> · {recipientLabel}</span> : null}
+
+          {showDayPanel ? (
+            <p className="sr-only">
+              While this page stays open, approximate location may be shared with the session organizer. Close the tab
+              anytime.
             </p>
           ) : null}
 
@@ -595,12 +533,28 @@ export default function ShareSessionClient({ sessionId }: Props) {
             </div>
           ) : null}
 
-          {showDisclosure ? (
-            <p className="mx-auto mt-10 max-w-sm text-[11px] leading-relaxed text-muted-foreground/90">
-              Transparency: while this page stays open, it may share approximate location with{" "}
-              {ownerLabel?.trim() || "the sender"}. Close the tab anytime.
-            </p>
+          {showDayPanel ? (
+            <div className="mx-auto mt-12 max-w-lg rounded-2xl border border-border/70 bg-muted/15 px-6 py-6 text-left shadow-inner ring-1 ring-primary/5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary/80">On this calendar day</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground/90">{friendlyCalendarLabel}</span>
+                <span className="text-muted-foreground"> · </span>
+                Day {dayHighlights.dayOfYear} of {dayHighlights.daysInYear}
+                <span className="text-muted-foreground"> · </span>
+                {dayHighlights.isoWeekLabel}
+              </p>
+              <ul className="mt-4 space-y-2.5 text-sm leading-relaxed text-muted-foreground">
+                {dayHighlights.events.map((line) => (
+                  <li key={line} className="flex gap-2">
+                    <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-primary/50" aria-hidden />
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
+
+          <OnThisDayHistory dateYmd={calendarDayKey} active={showDayPanel} />
 
           {status === "EXPIRED" ? (
             <p className="mx-auto mt-8 max-w-md text-sm text-muted-foreground">
@@ -609,27 +563,6 @@ export default function ShareSessionClient({ sessionId }: Props) {
           ) : null}
           {status === "DECLINED" ? (
             <p className="mx-auto mt-8 max-w-md text-sm text-muted-foreground">That&apos;s alright — you chose not to.</p>
-          ) : null}
-
-          {recipientGpsUi === "live" ? (
-            <div
-              className="mt-8 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-xs font-medium text-emerald-100"
-              role="status"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-              </span>
-              Connected
-            </div>
-          ) : null}
-          {recipientGpsUi === "waiting" ? (
-            <div
-              className="mt-8 rounded-full border border-amber-500/35 bg-amber-500/10 px-4 py-1.5 text-xs font-medium text-amber-100"
-              role="status"
-            >
-              Waiting for signal…
-            </div>
           ) : null}
 
           {error ? (
@@ -642,18 +575,6 @@ export default function ShareSessionClient({ sessionId }: Props) {
           ) : null}
         </div>
       </section>
-
-      {showMap ? (
-        <MapTracker
-          locations={mapLocations}
-          showTrail={mapLocations.length > 1 || sharing}
-          highlightLatest
-          followLatest={sharing}
-          followZoom={17}
-          heading="Your path"
-          description={mapDescription}
-        />
-      ) : null}
     </div>
   );
 }
