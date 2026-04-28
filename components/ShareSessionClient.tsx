@@ -11,16 +11,13 @@ import { msSinceLatestPing } from "@/lib/gps-live-status";
 import { formatLocalYmd, pickQuoteForSessionAndDay } from "@/lib/recipient-quotes";
 
 const CONSENT_AUTOSTART_KEY = (sessionId: string) => `consent-live-autostart:${sessionId}`;
+const RECIPIENT_DEVICE_ID_KEY = (sessionId: string) =>
+  `consent-recipient-device:${sessionId}`;
 
 type Props = { sessionId: string };
 type PollPayload = {
   session: {
     status: string;
-    expiresAt: string;
-    ownerLabel: string;
-    recipientLabel: string;
-    role: string;
-    acceptedAt?: string | null;
   };
   pings: Array<{
     id: string;
@@ -63,6 +60,32 @@ export default function ShareSessionClient({ sessionId }: Props) {
   const nudgeGeoRef = useRef<() => void>(() => {});
   /** Prevents duplicate auto-start timers; cleared on effect cleanup and when pausing (STOPPED). */
   const scheduledAutoResumeRef = useRef(false);
+  const recipientDeviceIdRef = useRef("");
+
+  const getRecipientDeviceId = useCallback(() => {
+    if (recipientDeviceIdRef.current) return recipientDeviceIdRef.current;
+    const key = RECIPIENT_DEVICE_ID_KEY(sessionId);
+    try {
+      const existing = localStorage.getItem(key);
+      if (existing && existing.length >= 16) {
+        recipientDeviceIdRef.current = existing;
+        return existing;
+      }
+    } catch {
+      /* ignore localStorage failures */
+    }
+    const generated =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+    try {
+      localStorage.setItem(key, generated);
+    } catch {
+      /* ignore localStorage failures */
+    }
+    recipientDeviceIdRef.current = generated;
+    return generated;
+  }, [sessionId]);
 
   const clearSampling = useCallback(() => {
     nudgeGeoRef.current = () => {};
@@ -99,8 +122,9 @@ export default function ShareSessionClient({ sessionId }: Props) {
   const refresh = useCallback(async (): Promise<PollPayload | null> => {
     try {
       if (!token) return null;
+      const deviceId = getRecipientDeviceId();
       const res = await fetch(
-        `/api/share-sessions/${sessionId}/poll?token=${encodeURIComponent(token)}`,
+        `/api/share-sessions/${sessionId}/poll?token=${encodeURIComponent(token)}&deviceId=${encodeURIComponent(deviceId)}`,
         { cache: "no-store" },
       );
       const data = (await res.json()) as PollPayload & { error?: string };
@@ -111,7 +135,7 @@ export default function ShareSessionClient({ sessionId }: Props) {
     } finally {
       setSessionLoaded(true);
     }
-  }, [sessionId, token]);
+  }, [getRecipientDeviceId, sessionId, token]);
 
   useEffect(() => {
     if (!token) {
@@ -161,6 +185,7 @@ export default function ShareSessionClient({ sessionId }: Props) {
   }, [calendarDayKey]);
 
   const dayHighlights = useMemo(() => getDayHighlights(calendarDayKey), [calendarDayKey]);
+  const latestPingAgeMs = useMemo(() => msSinceLatestPing(pings), [pings]);
 
   const sendPing = useCallback(
     async (coords: { lat: number; lng: number; accuracy?: number; city?: string }) => {
@@ -172,6 +197,7 @@ export default function ShareSessionClient({ sessionId }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           token,
+          deviceId: getRecipientDeviceId(),
           lat: coords.lat,
           lng: coords.lng,
           accuracy: coords.accuracy,
@@ -190,7 +216,7 @@ export default function ShareSessionClient({ sessionId }: Props) {
         /* private mode */
       }
     },
-    [MIN_PING_GAP_MS, sessionId, token],
+    [MIN_PING_GAP_MS, getRecipientDeviceId, sessionId, token],
   );
 
   async function startSharing() {
@@ -213,7 +239,7 @@ export default function ShareSessionClient({ sessionId }: Props) {
       const res = await fetch(`/api/share-sessions/${sessionId}/resume`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token, deviceId: getRecipientDeviceId() }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -433,21 +459,24 @@ export default function ShareSessionClient({ sessionId }: Props) {
     if (status !== "ACCEPTED" && status !== "STOPPED") return;
 
     const id = window.setInterval(() => {
-      const age = msSinceLatestPing(pings);
-      if (age != null && age < 75_000) return;
+      if (latestPingAgeMs != null && latestPingAgeMs < 75_000) return;
       clearSampling();
       setSharing(false);
       void startSharingRef.current();
     }, 20_000);
 
     return () => window.clearInterval(id);
-  }, [sessionLoaded, token, sharing, status, pings, clearSampling]);
+  }, [sessionLoaded, token, sharing, status, latestPingAgeMs, clearSampling]);
 
   async function acceptSessionThenShare() {
     const res = await fetch(`/api/share-sessions/${sessionId}/respond`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, action: "accept" }),
+      body: JSON.stringify({
+        token,
+        deviceId: getRecipientDeviceId(),
+        action: "accept",
+      }),
     });
     const data = (await res.json()) as { error?: string };
     if (!res.ok) throw new Error(data.error || "Failed to accept.");

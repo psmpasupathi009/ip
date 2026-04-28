@@ -123,6 +123,11 @@ export default function ShareManageClient({ sessionId }: Props) {
     () => ownerRecipientGpsBanner(status, pings),
     [status, pings, gpsUiTick],
   );
+  const latestCapturedAt = useMemo(() => latestPingCapturedAt(pings), [pings]);
+  const movementLiveLabel = ownerGpsUi === "live" ? "Live" : "Paused";
+  const lastUpdateLabel = latestCapturedAt
+    ? formatPingAge(latestCapturedAt)
+    : "No updates yet";
 
   async function stopSharing() {
     await fetch(`/api/share-sessions/${sessionId}/stop`, {
@@ -201,6 +206,16 @@ export default function ShareManageClient({ sessionId }: Props) {
                 )}
               >
                 {status.split("_").join(" ")}
+              </span>
+              <span
+                className={cn(
+                  "inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-medium",
+                  ownerGpsUi === "live"
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"
+                    : "border-amber-500/40 bg-amber-500/10 text-amber-100",
+                )}
+              >
+                {movementLiveLabel} · Last update {lastUpdateLabel}
               </span>
               {expiresAt ? (
                 <span className="text-right text-xs text-muted-foreground">{formatTimeLeft(expiresAt)}</span>

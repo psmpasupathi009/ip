@@ -30,17 +30,19 @@ enum ShareSessionStatus {
 }
 
 model ShareSession {
-  id             String             @id @default(auto()) @map("_id") @db.ObjectId
-  ownerLabel     String
-  recipientLabel String?
-  ownerToken     String             @unique
-  recipientToken String             @unique
-  status         ShareSessionStatus @default(PENDING)
-  createdAt      DateTime           @default(now())
-  acceptedAt     DateTime?
-  stoppedAt      DateTime?
-  expiresAt      DateTime
-  pings          LocationPing[]
+  id                     String             @id @default(auto()) @map("_id") @db.ObjectId
+  ownerLabel             String
+  recipientLabel         String?
+  ownerToken             String             @unique
+  recipientToken         String             @unique
+  recipientDeviceId      String?
+  recipientDeviceBoundAt DateTime?
+  status                 ShareSessionStatus @default(PENDING)
+  createdAt              DateTime           @default(now())
+  acceptedAt             DateTime?
+  stoppedAt              DateTime?
+  expiresAt              DateTime
+  pings                  LocationPing[]
 
   @@index([status, expiresAt])
 }

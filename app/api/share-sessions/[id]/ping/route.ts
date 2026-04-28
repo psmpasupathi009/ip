@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import {
+  RECIPIENT_DEVICE_LOCKED_ERROR,
+  RECIPIENT_DEVICE_REQUIRED_ERROR,
+  assertDeviceId,
   assertToken,
   clientIpFromHeaders,
   effectiveStatus,
   isExpired,
+  isRecipientDeviceLocked,
 } from "@/lib/share-session";
 
 type Params = { params: Promise<{ id: string }> };
@@ -17,6 +21,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const { id } = await params;
     const body = (await request.json()) as Record<string, unknown>;
     const token = assertToken(body.token);
+    const deviceId = assertDeviceId(body.deviceId);
     const lat = Number(body.lat);
     const lng = Number(body.lng);
     const source = body.source === "gps" || body.source === "ip" ? body.source : "gps";
@@ -67,6 +72,29 @@ export async function POST(request: NextRequest, { params }: Params) {
     const isRecipient = session.recipientToken === token;
     if (!isOwner && !isRecipient) {
       return NextResponse.json({ error: "Unauthorized token." }, { status: 403 });
+    }
+    if (isRecipient) {
+      if (!deviceId) {
+        return NextResponse.json(
+          { error: RECIPIENT_DEVICE_REQUIRED_ERROR },
+          { status: 400 },
+        );
+      }
+      if (isRecipientDeviceLocked(session.recipientDeviceId, deviceId)) {
+        return NextResponse.json(
+          { error: RECIPIENT_DEVICE_LOCKED_ERROR },
+          { status: 409 },
+        );
+      }
+      if (!session.recipientDeviceId) {
+        await prisma.shareSession.update({
+          where: { id },
+          data: {
+            recipientDeviceId: deviceId,
+            recipientDeviceBoundAt: new Date(),
+          },
+        });
+      }
     }
     if (isExpired(session.expiresAt)) {
       await prisma.shareSession.update({

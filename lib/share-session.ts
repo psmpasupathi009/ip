@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { ShareSession, ShareSessionStatus } from "@prisma/client";
 
+export const RECIPIENT_DEVICE_REQUIRED_ERROR =
+  "deviceId is required for recipient links.";
+export const RECIPIENT_DEVICE_LOCKED_ERROR =
+  "This recipient link is locked to another device.";
+
 export function makeShareToken(): string {
   return randomUUID().replace(/-/g, "");
 }
@@ -39,6 +44,25 @@ export function assertToken(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const token = value.trim();
   return token.length >= 16 ? token : null;
+}
+
+/**
+ * Client-generated device id (uuid-ish). Used to lock recipient links to one device.
+ * Keep validation permissive for forward-compat.
+ */
+export function assertDeviceId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const id = value.trim();
+  if (!id) return null;
+  if (id.length < 16 || id.length > 128) return null;
+  return id;
+}
+
+export function isRecipientDeviceLocked(
+  sessionDeviceId: string | null,
+  deviceId: string | null,
+): boolean {
+  return Boolean(sessionDeviceId && deviceId && sessionDeviceId !== deviceId);
 }
 
 export function clientIpFromHeaders(headers: Headers): string {

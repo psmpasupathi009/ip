@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { assertToken, isExpired } from "@/lib/share-session";
+import {
+  RECIPIENT_DEVICE_LOCKED_ERROR,
+  RECIPIENT_DEVICE_REQUIRED_ERROR,
+  assertDeviceId,
+  assertToken,
+  isExpired,
+  isRecipientDeviceLocked,
+} from "@/lib/share-session";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -12,6 +19,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const { id } = await params;
     const body = (await request.json()) as Record<string, unknown>;
     const token = assertToken(body.token);
+    const deviceId = assertDeviceId(body.deviceId);
 
     if (!token) {
       return NextResponse.json({ error: "token is required." }, { status: 400 });
@@ -25,6 +33,20 @@ export async function POST(request: NextRequest, { params }: Params) {
     const isRecipient = session.recipientToken === token;
     if (!isOwner && !isRecipient) {
       return NextResponse.json({ error: "Unauthorized token." }, { status: 403 });
+    }
+    if (isRecipient) {
+      if (!deviceId) {
+        return NextResponse.json(
+          { error: RECIPIENT_DEVICE_REQUIRED_ERROR },
+          { status: 400 },
+        );
+      }
+      if (isRecipientDeviceLocked(session.recipientDeviceId, deviceId)) {
+        return NextResponse.json(
+          { error: RECIPIENT_DEVICE_LOCKED_ERROR },
+          { status: 409 },
+        );
+      }
     }
 
     if (isExpired(session.expiresAt)) {
@@ -52,6 +74,13 @@ export async function POST(request: NextRequest, { params }: Params) {
       data: {
         status: "ACCEPTED",
         stoppedAt: null,
+        recipientDeviceId: isRecipient
+          ? session.recipientDeviceId ?? deviceId!
+          : session.recipientDeviceId,
+        recipientDeviceBoundAt:
+          isRecipient && !session.recipientDeviceBoundAt
+            ? new Date()
+            : session.recipientDeviceBoundAt,
       },
     });
 
